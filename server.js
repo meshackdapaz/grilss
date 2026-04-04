@@ -131,7 +131,11 @@ async function startBot(isPairing = false, phone = null) {
 // REST ENDPOINTS
 app.get('/logout', async (req, res) => {
     console.log('[RESET] Instant Manual Logout Triggered');
-    if (sock) { try { sock.end(); } catch (e) {} sock = null; }
+    if (sock) { 
+        try { await sock.logout(); } catch (e) {} // Tells WhatsApp to instantly remove the linked device from your phone!
+        try { sock.end(); } catch (e) {} 
+        sock = null; 
+    }
     if (fs.existsSync(authPath)) fs.rmSync(authPath, { recursive: true, force: true });
     // Parallel Cloud Clean
     supabase.storage.from('bot-auth').remove(['session.zip']).then(() => {});
