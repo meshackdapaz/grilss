@@ -27,7 +27,7 @@ const defaultPersona = `You are Mjomba Assistant for Mjomba's Texas Grill. Profe
 
 async function fetchCloudBrain() {
     try {
-        const { data } = await supabase.from('bot_settings').select('key, value').timeout(4000); 
+        const { data } = await supabase.from('bot_settings').select('key, value'); 
         const brain = {};
         if (data) {
             data.forEach(s => brain[s.key] = s.value);
@@ -50,11 +50,19 @@ async function startBot(isPairing = false, phone = null, fromReconnect = false) 
         isFirstStart = false; // Never download again in this process unless we crash
     }
     
+    // CLEANUP OLD SOCKET (Ghost Prevention)
+    if (sock) {
+        console.log('[CLEAN] Removing old socket listeners...');
+        sock.ev.removeAllListeners();
+        try { sock.end(); } catch (e) {}
+    }
+
     const { state, saveCreds } = await useMultiFileAuthState(authPath);
     sock = makeWASocket({
         version: (await fetchLatestBaileysVersion()).version,
         auth: state, logger: pino({ level: 'silent' }),
-        browser: Browsers.macOS('Chrome')
+        browser: Browsers.macOS('Chrome'),
+        markOnlineOnConnect: true
     });
 
     if (isPairing && phone) {
@@ -146,7 +154,7 @@ async function startBot(isPairing = false, phone = null, fromReconnect = false) 
                     const { data: raw } = await supabase.from('messages')
                         .select('content, type')
                         .or(`sender.eq.${jid},reply_to.eq.${jid}`)
-                        .order('created_at', { ascending: false }).limit(6).timeout(3000);
+                        .order('created_at', { ascending: false }).limit(6);
                     localBuffer[jid] = raw ? raw.reverse().map(h => ({
                         role: h.type === 'incoming' ? 'user' : 'model',
                         parts: [{ text: h.content }]
@@ -193,7 +201,11 @@ app.get('/request-pairing', async (req, res) => {
     res.json({ success: true });
 });
 
-setInterval(() => { if (sock) io.emit('log', `System Pulse: OK at ${new Date().toLocaleTimeString()}`); }, 30000);
+setInterval(() => { 
+    if (sock) {
+        io.emit('log', `💓 System Pulse: Mjomba is Watching... (OK at ${new Date().toLocaleTimeString()})`); 
+    }
+}, 30000);
 
 const PORT = process.env.PORT || 3002;
 server.listen(PORT, async () => {
