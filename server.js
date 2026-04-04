@@ -106,8 +106,22 @@ async function startBot(isPairing = false, phone = null, fromReconnect = false) 
 
         await Promise.all(messages.map(async (msg) => {
             try {
-                if (!msg.message) return;
+                // 1. RAW MESSAGE CHECK
+                if (!msg.message) {
+                    io.emit('log', `⚠️ [DEBUG] Skipping: No message content (type: ${type})`);
+                    return;
+                }
                 
+                // 2. TIMESTAMPS (Avoid responding to very old history syncs)
+                const now = Math.floor(Date.now() / 1000);
+                const msgTime = msg.messageTimestamp;
+                const isRecent = (now - msgTime) < 300; // Recent = last 5 minutes
+                
+                if (type === 'append' && !isRecent) {
+                    io.emit('log', `🕒 [DEBUG] Skipping old history (append) - ${now - msgTime}s ago`);
+                    return;
+                }
+
                 const jid = msg.key.remoteJid;
                 const name = msg.pushName || 'Customer';
 
@@ -117,14 +131,18 @@ async function startBot(isPairing = false, phone = null, fromReconnect = false) 
                              msg.message.buttonsResponseMessage?.selectedDisplayText || 
                              msg.message.templateButtonReplyMessage?.selectedId ||
                              msg.message.listResponseMessage?.title ||
+                             msg.message.imageMessage?.caption ||
                              '';
 
-                // SELF-CHAT ALLOWED (if text exists)
-                if (msg.key.fromMe && !text) return; // Only skip empty sync/status from self
+                // 3. SELF-CHAT / SYNC FILTER
+                if (msg.key.fromMe && !text) {
+                    io.emit('log', `🛡️ [DEBUG] Skipping self-message sync`);
+                    return; 
+                }
                 if (msg.key.fromMe && text) io.emit('log', `👤 [SELF-CHAT] Testing Mjomba...`);
 
                 // Handle Images (Payments)
-                if (msg.message.imageMessage) {
+                if (msg.message.imageMessage && !text.toLowerCase().match(/menu|habari|hi|hey/)) {
                     io.emit('log', `📸 [PHOTO] Payment alert from ${name}`);
                     try {
                         const buffer = await downloadMediaMessage(msg, 'buffer', { }, { logger: pino({ level: 'silent' }) });
@@ -138,7 +156,10 @@ async function startBot(isPairing = false, phone = null, fromReconnect = false) 
                     return;
                 }
 
-                if (!text) return;
+                if (!text) {
+                    io.emit('log', `❓ [DEBUG] Skipping: Could not extract text from message`);
+                    return;
+                }
 
                 if (!gemini) {
                     io.emit('log', `🧠 Mjomba's Brain is still waking up...`);
