@@ -36,14 +36,18 @@ async function fetchCloudBrain() {
     } catch (e) { gemini = new LocalBrainService(); }
 }
 
-async function startBot(isPairing = false, phone = null) {
+let isFirstStart = true;
+async function startBot(isPairing = false, phone = null, fromReconnect = false) {
     if (isPairing) {
+        console.log('[SHOE] Starting deep pairing RESET...');
         if (sock) { try { sock.end(); } catch (e) {} sock = null; }
         if (fs.existsSync(authPath)) fs.rmSync(authPath, { recursive: true, force: true });
         // Background Cleanup (Non-awaited for Turbo speed)
         supabase.storage.from('bot-auth').remove(['session.zip']).then(() => {});
-    } else {
+    } else if (isFirstStart && !fromReconnect) {
+        console.log('[SYNC] First start: Downloading session from cloud...');
         await authBackup.downloadSession(authPath);
+        isFirstStart = false; // Never download again in this process unless we crash
     }
     
     const { state, saveCreds } = await useMultiFileAuthState(authPath);
@@ -63,14 +67,27 @@ async function startBot(isPairing = false, phone = null) {
         try { await saveCreds(); authBackup.uploadSession(authPath).catch(err => {}); } catch (e) {}
     });
 
-    sock.ev.on('connection.update', (u) => {
-        const { connection, qr } = u;
+    sock.ev.on('connection.update', async (u) => {
+        const { connection, lastDisconnect, qr } = u;
         if (qr) io.emit('qr', qr);
+        
         if (connection === 'open') {
             io.emit('status', 'Connected');
             console.log('Mjomba Assistant Alive!');
+            // Save a fresh backup once connection is fully established
+            await authBackup.uploadSession(authPath).catch(() => {});
         } else if (connection === 'close') {
-            setTimeout(startBot, 5000);
+            const shouldReconnect = (lastDisconnect?.error)?.output?.statusCode !== DisconnectReason.loggedOut;
+            console.log('[CONN] Closed. Reconnecting:', shouldReconnect);
+            if (shouldReconnect) {
+                // IMPORTANT: Re-start without re-downloading the cloud session 
+                // to use what's already in the local auth folder
+                setTimeout(() => startBot(false, null, true), 5000);
+            } else {
+                console.log('[CONN] Logged out. Manual re-pairing required.');
+                io.emit('status', 'Logged Out');
+                if (fs.existsSync(authPath)) fs.rmSync(authPath, { recursive: true, force: true });
+            }
         }
     });
 
