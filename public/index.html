@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mjomba's Grill - Bot Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600&display=swap" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <style>
+        :root {
+            --primary: #FF7F00; /* Mjomba Orange */
+            --bg: #0f172a;
+            --glass: rgba(255, 255, 255, 0.05);
+            --glass-border: rgba(255, 255, 255, 0.1);
+        }
+
+        body {
+            margin: 0; padding: 0;
+            font-family: 'Outfit', sans-serif;
+            background: var(--bg);
+            color: white;
+            display: flex; justify-content: center; align-items: center;
+            min-height: 100vh;
+            background: radial-gradient(circle at top right, #1e293b, #0f172a);
+        }
+
+        .container {
+            width: 90%; max-width: 500px;
+            background: var(--glass);
+            backdrop-filter: blur(20px);
+            border: 1px solid var(--glass-border);
+            padding: 30px; border-radius: 24px;
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.8);
+            text-align: center;
+        }
+
+        h1 { font-weight: 600; margin-bottom: 5px; color: var(--primary); font-size: 1.8em; }
+        h2 { font-size: 0.9em; opacity: 0.6; margin-bottom: 25px; }
+        
+        .status { margin-bottom: 20px; font-size: 0.9em; }
+        .status span { color: var(--primary); font-weight: bold; }
+
+        .tabs {
+            display: flex; gap: 10px; margin-bottom: 20px;
+            background: rgba(0,0,0,0.3); padding: 5px; border-radius: 12px;
+        }
+        .tab-btn {
+            flex: 1; padding: 10px; border-radius: 8px; border: none;
+            background: transparent; color: white; cursor: pointer;
+            transition: 0.3s; font-size: 0.8em; font-weight: 600;
+        }
+        .tab-btn.active { background: var(--primary); }
+
+        .tab-content { display: none; margin-top: 20px; }
+        .tab-content.active { display: block; }
+
+        .form-group { text-align: left; margin-bottom: 20px; }
+        label { display: block; margin-bottom: 10px; font-size: 0.85em; opacity: 0.9; }
+
+        input {
+            width: 100%; padding: 12px; border-radius: 10px;
+            border: 1px solid var(--glass-border); background: rgba(0, 0, 0, 0.4);
+            color: white; font-size: 1em; outline: none; box-sizing: border-box;
+            text-align: center;
+        }
+
+        #qr-container {
+            background: white; padding: 15px; border-radius: 12px;
+            width: fit-content; margin: 0 auto 20px auto;
+            display: none;
+        }
+
+        .btn-group { display: flex; gap: 10px; margin-top: 20px; }
+
+        button.main-btn {
+            width: 100%; background: var(--primary); color: white; border: none;
+            padding: 15px; border-radius: 12px; font-weight: bold;
+            cursor: pointer; transition: 0.3s; font-size: 0.9em;
+        }
+
+        button.logout {
+            width: 100%; background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); color: #ef4444;
+            padding: 12px; border-radius: 10px; font-weight: bold; cursor: pointer; font-size: 0.85em; margin-top: 10px;
+        }
+
+        button:hover { transform: translateY(-1px); filter: brightness(1.1); }
+
+        #code-display {
+            margin-top: 20px; padding: 15px; background: rgba(255, 127, 0, 0.1);
+            border-radius: 12px; font-size: 2em; font-weight: bold;
+            letter-spacing: 5px; color: var(--primary); border: 2px dashed var(--primary);
+            display: none; animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 1; } 50% { opacity: 0.7; } 100% { opacity: 1; }
+        }
+
+        .logs {
+            margin-top: 25px; height: 100px; overflow-y: auto; text-align: left;
+            background: rgba(0, 0, 0, 0.4); padding: 12px; border-radius: 10px;
+            font-family: monospace; font-size: 0.7em; border-top: 1px solid var(--glass-border);
+        }
+        .log-item { margin-bottom: 4px; opacity: 0.6; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 2px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Mjomba AI Bot</h1>
+        <h2>Steak & Poutine House Assistant</h2>
+        
+        <div class="status">Status: <span id="status">Waking up...</span></div>
+        
+        <div class="tabs">
+            <button class="tab-btn active" id="tab-qr" onclick="switchTab('qr-tab')">Scan QR CODE</button>
+            <button class="tab-btn" id="tab-phone" onclick="switchTab('phone-tab')">Link with Phone</button>
+        </div>
+
+        <div id="qr-tab" class="tab-content active">
+            <div id="qr-container"></div>
+            <p style="font-size: 0.8em; opacity: 0.7;">Open WhatsApp > Linked Devices > Link a Device</p>
+        </div>
+
+        <div id="phone-tab" class="tab-content">
+            <div class="form-group">
+                <label>ENTER PHONE NUMBER</label>
+                <input type="text" id="phone" value="255765450573" placeholder="e.g. 255...">
+            </div>
+            <button class="main-btn" onclick="requestPairing()">Link Mjomba Now</button>
+            <div id="code-display"></div>
+            <p style="font-size: 0.8em; opacity: 0.7; margin-top: 15px;">Open WhatsApp > Linked Devices > Link with Phone Number</p>
+        </div>
+
+        <div class="btn-group">
+            <button class="logout" onclick="logout()">Manual Logout / Reset</button>
+        </div>
+
+        <div class="logs" id="logs">
+            <div class="log-item">System Ready.</div>
+        </div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        const socket = io();
+        const logsBox = document.getElementById('logs');
+        const statusText = document.getElementById('status');
+        const codeDisplay = document.getElementById('code-display');
+        const qrContainer = document.getElementById('qr-container');
+        let qrcode = null;
+
+        function switchTab(tabId) {
+            document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            document.getElementById(tabId).classList.add('active');
+            if (tabId === 'qr-tab') document.getElementById('tab-qr').classList.add('active');
+            else document.getElementById('tab-phone').classList.add('active');
+            codeDisplay.style.display = 'none';
+        }
+
+        socket.on('status', (s) => {
+            statusText.innerText = s;
+            if (s === 'Connected') {
+                statusText.style.color = '#25D366';
+                qrContainer.style.display = 'none';
+                codeDisplay.style.display = 'none';
+            } else {
+                statusText.style.color = '#FF7F00';
+            }
+        });
+
+        socket.on('qr', (qrString) => {
+            qrContainer.innerHTML = '';
+            qrContainer.style.display = 'block';
+            new QRCode(qrContainer, {
+                text: qrString,
+                width: 180, height: 180,
+                colorDark : "#000000", colorLight : "#ffffff",
+                correctLevel : QRCode.CorrectLevel.H
+            });
+            statusText.innerText = 'Scan the QR Code';
+        });
+
+        socket.on('code', (c) => {
+            console.log("Pairing Code Received:", c);
+            codeDisplay.innerText = c;
+            codeDisplay.style.display = 'block';
+            statusText.innerText = 'Link code is Ready!';
+        });
+
+        socket.on('log', (msg) => {
+            const div = document.createElement('div');
+            div.className = 'log-item';
+            div.innerText = `> ${msg}`;
+            logsBox.prepend(div);
+            if (logsBox.children.length > 20) logsBox.lastChild.remove();
+        });
+
+        async function requestPairing() {
+            const phone = document.getElementById('phone').value.replace(/\+/g, '').replace(/ /g, '');
+            if (!phone) return alert('Enter phone number!');
+            
+            statusText.innerText = 'Requesting Link Code...';
+            codeDisplay.style.display = 'none';
+            
+            await fetch(`/request-pairing?phone=${phone}`);
+        }
+
+        async function logout() {
+            if (!confirm('This will wipe your session and restart the bot. Continue?')) return;
+            statusText.innerText = 'Resetting System...';
+            const res = await fetch('/logout');
+            const data = await res.json();
+            if (data.success) {
+                setTimeout(() => window.location.reload(), 1000);
+            }
+        }
+    </script>
+</body>
+</html>
