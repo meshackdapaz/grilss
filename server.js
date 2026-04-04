@@ -92,56 +92,59 @@ async function startBot(isPairing = false, phone = null, fromReconnect = false) 
     });
 
     sock.ev.on('messages.upsert', async (m) => {
-        const msg = m.messages[0];
-        if (!msg.message || msg.key.fromMe) return;
-        const jid = msg.key.remoteJid;
-        const name = msg.pushName || 'Customer';
+        const { messages, type } = m;
+        if (type !== 'notify') return;
 
-        // SCREENSHOT / PAYMENT INTERCEPTOR
-        if (msg.message.imageMessage) {
-            try {
-                const buffer = await downloadMediaMessage(msg, 'buffer', { }, { logger: pino({ level: 'silent' }) });
-                const bossJid = process.env.MANAGER_NUMBER + '@s.whatsapp.net';
-                await sock.sendMessage(bossJid, { 
-                    image: buffer, 
-                    caption: `🚨 *MALIPO MAPYA (SCREENSHOT)* 🚨\n👤 *Kutoka*: ${name}\n📞 *Namba*: ${jid.split('@')[0]}\n\nAngalia muamala huu na u-confirm order!` 
-                });
-                await sock.sendMessage(jid, { text: "Asante! 🙏 Screenshot ya malipo imetumwa kwa Mjomba.\n\nGrill inawashwa sasa hivi... tutakupa taarifa mzigo ukiwa tayari! Nyama Bila Drama! 🥩🔥" });
-            } catch (err) {
-                console.error("[IMAGE FORWARD ERROR]", err);
-            }
-            return;
-        }
-
-        const text = msg.message.conversation || msg.message.extendedTextMessage?.text || '';
-        if (!text || !gemini) return;
-
-        io.emit('log', `${name}: ${text}`);
-        supabase.from('messages').insert([{ sender: jid, sender_name: name, content: text, type: 'incoming' }]).then(() => {});
-
-        if (!localBuffer[jid]) {
-            try {
-                const { data: raw } = await supabase.from('messages')
-                    .select('content, type')
-                    .or(`sender.eq.${jid},reply_to.eq.${jid}`)
-                    .order('created_at', { ascending: false }).limit(6).timeout(3000);
-                localBuffer[jid] = raw ? raw.filter(h => !h.content.includes("Issue:")).reverse().map(h => ({
-                    role: h.type === 'incoming' ? 'user' : 'model',
-                    parts: [{ text: h.content }]
-                })) : [];
-            } catch (e) { localBuffer[jid] = []; }
-        }
-
-        try {
-            const res = await gemini.getResponseFromHistory(text, localBuffer[jid]);
-            await sock.sendMessage(jid, { text: res });
-            io.emit('log', `Bot: ${res}`);
+        for (const msg of messages) {
+            if (!msg.message || msg.key.fromMe) continue;
             
-            localBuffer[jid].push({ role: 'user', parts: [{ text }] });
-            localBuffer[jid].push({ role: 'model', parts: [{ text: res }] });
-            if (localBuffer[jid].length > 6) localBuffer[jid].shift();
-            supabase.from('messages').insert([{ sender: 'BOT', content: res, type: 'outgoing', reply_to: jid }]).then(() => {});
-        } catch (e) {}
+            const jid = msg.key.remoteJid;
+            const name = msg.pushName || 'Customer';
+            const text = msg.message.conversation || msg.message.extendedTextMessage?.text || '';
+
+            // SCREENSHOT / PAYMENT INTERCEPTOR
+            if (msg.message.imageMessage) {
+                try {
+                    const buffer = await downloadMediaMessage(msg, 'buffer', { }, { logger: pino({ level: 'silent' }) });
+                    const bossJid = process.env.MANAGER_NUMBER + '@s.whatsapp.net';
+                    await sock.sendMessage(bossJid, { 
+                        image: buffer, 
+                        caption: `🚨 *MALIPO MAPYA (SCREENSHOT)* 🚨\n👤 *Kutoka*: ${name}\n📞 *Namba*: ${jid.split('@')[0]}\n\nAngalia muamala huu na u-confirm order!` 
+                    });
+                    await sock.sendMessage(jid, { text: "Asante! 🙏 Screenshot ya malipo imetumwa kwa Mjomba.\n\nGrill inawashwa sasa hivi... tutakupa taarifa mzigo ukiwa tayari! Nyama Bila Drama! 🥩🔥" });
+                } catch (err) { console.error("[IMAGE FORWARD ERROR]", err); }
+                continue;
+            }
+
+            if (!text || !gemini) continue;
+
+            io.emit('log', `${name}: ${text}`);
+            supabase.from('messages').insert([{ sender: jid, sender_name: name, content: text, type: 'incoming' }]).then(() => {});
+
+            if (!localBuffer[jid]) {
+                try {
+                    const { data: raw } = await supabase.from('messages')
+                        .select('content, type')
+                        .or(`sender.eq.${jid},reply_to.eq.${jid}`)
+                        .order('created_at', { ascending: false }).limit(6).timeout(3000);
+                    localBuffer[jid] = raw ? raw.reverse().map(h => ({
+                        role: h.type === 'incoming' ? 'user' : 'model',
+                        parts: [{ text: h.content }]
+                    })) : [];
+                } catch (e) { localBuffer[jid] = []; }
+            }
+
+            try {
+                const res = await gemini.getResponseFromHistory(text, localBuffer[jid]);
+                await sock.sendMessage(jid, { text: res });
+                io.emit('log', `Bot: ${res}`);
+                
+                localBuffer[jid].push({ role: 'user', parts: [{ text }] });
+                localBuffer[jid].push({ role: 'model', parts: [{ text: res }] });
+                if (localBuffer[jid].length > 6) localBuffer[jid].shift();
+                supabase.from('messages').insert([{ sender: 'BOT', content: res, type: 'outgoing', reply_to: jid }]).then(() => {});
+            } catch (e) {}
+        }
     });
 }
 
