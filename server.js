@@ -93,19 +93,31 @@ async function startBot(isPairing = false, phone = null, fromReconnect = false) 
 
     sock.ev.on('messages.upsert', async (m) => {
         const { messages, type } = m;
-        if (type !== 'notify') return;
+        // Dashboard Debug: Let the user know we see SOMETHING coming in
+        io.emit('log', `📥 Received ${messages.length} signals (Type: ${type})`);
 
-        // Parallel processing of all messages in the batch
         await Promise.all(messages.map(async (msg) => {
             try {
-                if (!msg.message || msg.key.fromMe) return;
+                // Check if from self
+                if (msg.key.fromMe) {
+                    io.emit('log', `⏳ Skipping message from your own phone (self-test)`);
+                    return;
+                }
+                if (!msg.message) return;
                 
                 const jid = msg.key.remoteJid;
                 const name = msg.pushName || 'Customer';
-                const text = msg.message.conversation || msg.message.extendedTextMessage?.text || '';
 
-                // Handle Images (Payments)
+                // Deep Text Extraction (Handles buttons, ads, and standard text)
+                const text = msg.message.conversation || 
+                             msg.message.extendedTextMessage?.text || 
+                             msg.message.buttonsResponseMessage?.selectedDisplayText || 
+                             msg.message.templateButtonReplyMessage?.selectedId ||
+                             '';
+
+                // Handle Images (Payments) - Priority #1
                 if (msg.message.imageMessage) {
+                    io.emit('log', `📸 [IMAGE] Payment screenshot detected from ${name}`);
                     try {
                         const buffer = await downloadMediaMessage(msg, 'buffer', { }, { logger: pino({ level: 'silent' }) });
                         const bossJid = process.env.MANAGER_NUMBER + '@s.whatsapp.net';
@@ -118,17 +130,24 @@ async function startBot(isPairing = false, phone = null, fromReconnect = false) 
                     return;
                 }
 
-                if (!text || !gemini) return;
+                if (!text) {
+                    io.emit('log', `❓ [EMPTY] No readable text found in signal from ${name}`);
+                    return;
+                }
+
+                if (!gemini) {
+                    io.emit('log', `🧠 [ERROR] Bot Brain not initialized yet!`);
+                    return;
+                }
 
                 // Log & Tracking
-                io.emit('log', `${name}: ${text}`);
+                io.emit('log', `📩 [IN] ${name}: ${text}`);
                 supabase.from('messages').insert([{ sender: jid, sender_name: name, content: text, type: 'incoming' }]).then(() => {});
 
                 // Context Retrieval
                 if (!localBuffer[jid]) {
                     const { data: raw } = await supabase.from('messages')
                         .select('content, type')
-                        .or(`sender.eq.${jid},reply_to.eq.${jid}`)
                         .order('created_at', { ascending: false }).limit(6).timeout(3000);
                     localBuffer[jid] = raw ? raw.reverse().map(h => ({
                         role: h.type === 'incoming' ? 'user' : 'model',
@@ -139,7 +158,7 @@ async function startBot(isPairing = false, phone = null, fromReconnect = false) 
                 // Generate and Send Response
                 const res = await gemini.getResponseFromHistory(text, localBuffer[jid]);
                 await sock.sendMessage(jid, { text: res });
-                io.emit('log', `Bot: ${res}`);
+                io.emit('log', `📤 [OUT] Bot: ${res}`);
                 
                 // Buffer Management
                 localBuffer[jid].push({ role: 'user', parts: [{ text }] });
@@ -149,7 +168,8 @@ async function startBot(isPairing = false, phone = null, fromReconnect = false) 
                 // History Logging
                 supabase.from('messages').insert([{ sender: 'BOT', content: res, type: 'outgoing', reply_to: jid }]).then(() => {});
             } catch (e) {
-                console.error("[PARALLEL PROC ERROR]", e.message);
+                console.error("[DEEP DIAG ERROR]", e.message);
+                io.emit('log', `❌ [SYSTEM ERROR] ${e.message}`);
             }
         }));
     });
