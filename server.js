@@ -146,7 +146,7 @@ app.get('/request-pairing', async (req, res) => {
 
 setInterval(() => { if (sock) io.emit('log', `System Pulse: OK at ${new Date().toLocaleTimeString()}`); }, 30000);
 
-const PORT = 3002;
+const PORT = process.env.PORT || 3002;
 server.listen(PORT, async () => {
     console.log(`Mjomba Reliable Hub: http://localhost:${PORT}`);
     await fetchCloudBrain();
