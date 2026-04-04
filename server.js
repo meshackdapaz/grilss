@@ -93,61 +93,59 @@ async function startBot(isPairing = false, phone = null, fromReconnect = false) 
 
     sock.ev.on('messages.upsert', async (m) => {
         const { messages, type } = m;
-        // Dashboard Debug: Let the user know we see SOMETHING coming in
-        io.emit('log', `📥 Received ${messages.length} signals (Type: ${type})`);
+        // Raw Log for transparency
+        io.emit('log', `📥 Incoming Signal (${type}) - Count: ${messages.length}`);
 
         await Promise.all(messages.map(async (msg) => {
             try {
-                // Check if from self
-                if (msg.key.fromMe) {
-                    io.emit('log', `⏳ Skipping message from your own phone (self-test)`);
-                    return;
-                }
                 if (!msg.message) return;
                 
                 const jid = msg.key.remoteJid;
                 const name = msg.pushName || 'Customer';
 
-                // Deep Text Extraction (Handles buttons, ads, and standard text)
+                // Deep Text Extraction
                 const text = msg.message.conversation || 
                              msg.message.extendedTextMessage?.text || 
                              msg.message.buttonsResponseMessage?.selectedDisplayText || 
                              msg.message.templateButtonReplyMessage?.selectedId ||
+                             msg.message.listResponseMessage?.title ||
                              '';
 
-                // Handle Images (Payments) - Priority #1
+                // SELF-CHAT ALLOWED (if text exists)
+                if (msg.key.fromMe && !text) return; // Only skip empty sync/status from self
+                if (msg.key.fromMe && text) io.emit('log', `👤 [SELF-CHAT] Testing Mjomba...`);
+
+                // Handle Images (Payments)
                 if (msg.message.imageMessage) {
-                    io.emit('log', `📸 [IMAGE] Payment screenshot detected from ${name}`);
+                    io.emit('log', `📸 [PHOTO] Payment alert from ${name}`);
                     try {
                         const buffer = await downloadMediaMessage(msg, 'buffer', { }, { logger: pino({ level: 'silent' }) });
                         const bossJid = process.env.MANAGER_NUMBER + '@s.whatsapp.net';
                         await sock.sendMessage(bossJid, { 
                             image: buffer, 
-                            caption: `🚨 *MALIPO MAPYA (SCREENSHOT)* 🚨\n👤 *Kutoka*: ${name}\n📞 *Namba*: ${jid.split('@')[0]}\n\nAngalia muamala huu na u-confirm order!` 
+                            caption: `🚨 *MALIPO MAPYA* 🚨\n👤 *Kutoka*: ${name}\n📞 *Namba*: ${jid.split('@')[0]}\n\nAngalia muamala huu!` 
                         });
-                        await sock.sendMessage(jid, { text: "Asante! 🙏 Screenshot ya malipo imetumwa kwa Mjomba.\n\nGrill inawashwa sasa hivi... tutakupa taarifa mzigo ukiwa tayari! Nyama Bila Drama! 🥩🔥" });
-                    } catch (err) { console.error("[IMAGE FORWARD ERROR]", err); }
+                        await sock.sendMessage(jid, { text: "Asante! Screenshot ya malipo imetumwa kwenda kwa Mjomba. Grill inawashwa sasa hivi... 🥩🔥" });
+                    } catch (err) { console.error("[PAYMENT ERROR]", err); }
                     return;
                 }
 
-                if (!text) {
-                    io.emit('log', `❓ [EMPTY] No readable text found in signal from ${name}`);
-                    return;
-                }
+                if (!text) return;
 
                 if (!gemini) {
-                    io.emit('log', `🧠 [ERROR] Bot Brain not initialized yet!`);
+                    io.emit('log', `🧠 Mjomba's Brain is still waking up...`);
                     return;
                 }
 
-                // Log & Tracking
+                // Log & Interaction
                 io.emit('log', `📩 [IN] ${name}: ${text}`);
                 supabase.from('messages').insert([{ sender: jid, sender_name: name, content: text, type: 'incoming' }]).then(() => {});
 
-                // Context Retrieval
+                // RESTORED: Context Retrieval Filter
                 if (!localBuffer[jid]) {
                     const { data: raw } = await supabase.from('messages')
                         .select('content, type')
+                        .or(`sender.eq.${jid},reply_to.eq.${jid}`)
                         .order('created_at', { ascending: false }).limit(6).timeout(3000);
                     localBuffer[jid] = raw ? raw.reverse().map(h => ({
                         role: h.type === 'incoming' ? 'user' : 'model',
@@ -155,21 +153,21 @@ async function startBot(isPairing = false, phone = null, fromReconnect = false) 
                     })) : [];
                 }
 
-                // Generate and Send Response
+                // Response Generation
                 const res = await gemini.getResponseFromHistory(text, localBuffer[jid]);
                 await sock.sendMessage(jid, { text: res });
                 io.emit('log', `📤 [OUT] Bot: ${res}`);
                 
-                // Buffer Management
+                // Buffer Sync
                 localBuffer[jid].push({ role: 'user', parts: [{ text }] });
                 localBuffer[jid].push({ role: 'model', parts: [{ text: res }] });
                 if (localBuffer[jid].length > 6) localBuffer[jid].shift();
                 
-                // History Logging
+                // Final Log
                 supabase.from('messages').insert([{ sender: 'BOT', content: res, type: 'outgoing', reply_to: jid }]).then(() => {});
             } catch (e) {
-                console.error("[DEEP DIAG ERROR]", e.message);
-                io.emit('log', `❌ [SYSTEM ERROR] ${e.message}`);
+                io.emit('log', `❌ [ERROR] ${e.message}`);
+                console.error("[MSG ERROR]", e);
             }
         }));
     });
