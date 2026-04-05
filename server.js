@@ -166,6 +166,9 @@ async function startBot(isPairing = false, phone = null, fromReconnect = false) 
                     return;
                 }
 
+                // 4. TURBO: Instant "Typing" Status
+                await sock.sendPresenceUpdate('composing', jid);
+
                 // Log & Interaction
                 io.emit('log', `📩 [IN] ${name}: ${text}`);
                 supabase.from('messages').insert([{ sender: jid, sender_name: name, content: text, type: 'incoming' }]).then(() => {});
