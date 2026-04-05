@@ -134,12 +134,14 @@ async function startBot(isPairing = false, phone = null, fromReconnect = false) 
                              msg.message.imageMessage?.caption ||
                              '';
 
-                // 3. SELF-CHAT / SYNC FILTER
-                if (msg.key.fromMe && !text) {
-                    io.emit('log', `🛡️ [DEBUG] Skipping self-message sync`);
-                    return; 
+                // 3. LOOP SHIELD: Never reply to self UNLESS it starts with a dot (.)
+                if (msg.key.fromMe) {
+                    if (!text.startsWith('.')) {
+                        io.emit('log', `🛡️ [LOOP PROTECT] Ignoring self-message`);
+                        return;
+                    }
+                    io.emit('log', `👤 [TEST MODE] Testing Mjomba manually...`);
                 }
-                if (msg.key.fromMe && text) io.emit('log', `👤 [SELF-CHAT] Testing Mjomba...`);
 
                 // Handle Images (Payments)
                 if (msg.message.imageMessage && !text.toLowerCase().match(/menu|habari|hi|hey/)) {
